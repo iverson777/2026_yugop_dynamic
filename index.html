@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dynamic Equilibrium — Particle Flow</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #f5f0eb; overflow: hidden; cursor: crosshair; }
+    canvas { display: block; }
+    #controls {
+      position: fixed; bottom: 20px; left: 20px;
+      font-family: 'Helvetica Neue', sans-serif;
+      font-size: 12px; color: #555;
+      background: rgba(255,255,255,0.92);
+      padding: 14px 18px; border-radius: 8px;
+      z-index: 10; backdrop-filter: blur(8px);
+      line-height: 2; max-height: 85vh; overflow-y: auto;
+    }
+    #controls label { display: block; margin: 1px 0; }
+    #controls input[type="range"] { width: 120px; vertical-align: middle; }
+    #controls .section { margin-top: 8px; font-weight: bold; color: #333; }
+    #controls .mode-btn {
+      display: inline-block; padding: 5px 12px; margin: 2px;
+      border: 1px solid #ccc; border-radius: 4px;
+      cursor: pointer; font-size: 12px; background: #fff;
+      transition: all 0.2s;
+    }
+    #controls .mode-btn.active { background: #222; color: #fff; border-color: #222; }
+    #status {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-family: 'Helvetica Neue', sans-serif;
+      font-size: 16px; color: #999;
+      text-align: center; line-height: 1.6;
+    }
+    #preview {
+      position: fixed; top: 10px; right: 10px;
+      border: 1px solid #ddd; border-radius: 6px;
+      z-index: 10; background: #000; overflow: hidden;
+    }
+    #preview video { display: block; width: 100%; height: 100%; object-fit: contain; }
+    #uploadArea {
+      position: fixed; inset: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: center;
+      background: #f5f0eb;
+    }
+    #uploadBox {
+      text-align: center; padding: 48px; border: 2px dashed #ccc;
+      border-radius: 16px; background: #fff; max-width: 400px;
+    }
+    #uploadBtn {
+      display: inline-block; padding: 10px 28px;
+      background: #222; color: #fff; border-radius: 6px;
+      cursor: pointer; font-size: 14px; font-family: 'Helvetica Neue', sans-serif;
+    }
+    #uploadBtn:hover { background: #444; }
+    #changeFile {
+      position: absolute; bottom: 6px; right: 6px;
+      width: 28px; height: 28px; line-height: 28px; text-align: center;
+      background: rgba(0,0,0,0.5); color: #fff; border-radius: 50%;
+      cursor: pointer; font-size: 16px; z-index: 11;
+    }
+    #changeFile:hover { background: rgba(0,0,0,0.7); }
+    #debug {
+      position: fixed; bottom: 10px; right: 10px;
+      font-family: monospace; font-size: 11px; color: #aaa; z-index: 10; text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <div id="status">Loading AI model...</div>
+  <div id="debug"></div>
+
+  <div id="uploadArea">
+    <div id="uploadBox">
+      <div style="font-size:48px; margin-bottom:16px;">&#x1F4F9;</div>
+      <div style="font-size:18px; font-weight:bold; margin-bottom:8px;">Dynamic Equilibrium</div>
+      <div style="margin-bottom:16px; color:#888;">Upload a video or image of a person</div>
+      <label id="uploadBtn">
+        Choose File
+        <input type="file" id="videoFile" accept="video/*,image/*" style="display:none;">
+      </label>
+      <div style="margin-top:12px; font-size:11px; color:#aaa;">Supports MP4, MOV, WebM, JPG, PNG</div>
+    </div>
+  </div>
+
+  <div id="preview" style="display:none;">
+    <video id="previewVideo" muted playsinline></video>
+    <img id="previewImg" style="display:none; width:100%; height:100%; object-fit:contain;">
+    <label id="changeFile" title="Change file">
+      &#x21bb;
+      <input type="file" accept="video/*,image/*" style="display:none;">
+    </label>
+  </div>
+
+  <div id="controls" style="display:none;">
+    <div class="section">Mode</div>
+    <div id="modeButtons">
+      <span class="mode-btn active" data-mode="flow">Flow</span>
+      <span class="mode-btn" data-mode="magnet">Magnet</span>
+      <span class="mode-btn" data-mode="rain">Rain</span>
+    </div>
+
+    <div class="section">Particles</div>
+    <label>Count: <input type="range" id="count" min="2000" max="30000" value="12000" step="500"> <span id="countVal">12000</span></label>
+    <label>Body Size: <input type="range" id="maxSize" min="1" max="10" value="2" step="0.5"> <span id="maxSizeVal">2</span></label>
+    <label>Small Size: <input type="range" id="minSize" min="0.3" max="3" value="0.8" step="0.1"> <span id="minSizeVal">0.8</span></label>
+    <label>Small Opacity: <input type="range" id="minOpacity" min="5" max="80" value="35"> <span id="minOpacityVal">35</span></label>
+
+    <div class="section">Motion</div>
+    <label>Speed: <input type="range" id="speed" min="1" max="10" value="4"> <span id="speedVal">4</span></label>
+    <label>Slow Factor: <input type="range" id="slow" min="1" max="50" value="10"> <span id="slowVal">10</span></label>
+    <label><input type="checkbox" id="loop" checked> Loop</label>
+  </div>
+  <canvas id="canvas"></canvas>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.17.0/dist/tf-core.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@4.17.0/dist/tf-converter.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.17.0/dist/tf-backend-webgl.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1.1675465747/selfie_segmentation.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-segmentation@1.0.2/dist/body-segmentation.min.js"></script>
+
+  <script>
+    // ─── CONFIG ───
+    const CONFIG = {
+      mode: 'flow',
+      particleCount: 12000,
+      maxParticleSize: 2,
+      minParticleSize: 0.8,
+      minOpacity: 0.35,
+      baseSpeed: 4,
+      slowFactor: 0.10,
+      bgColor: [245, 240, 235],
+      particleColor: [15, 15, 15],
+      loop: true,
+    };
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const debugEl = document.getElementById('debug');
+    const statusEl = document.getElementById('status');
+    const controls = document.getElementById('controls');
+    const previewEl = document.getElementById('preview');
+    const previewVideo = document.getElementById('previewVideo');
+    const previewImg = document.getElementById('previewImg');
+    const uploadArea = document.getElementById('uploadArea');
+
+    let W, H, videoW, videoH;
+    let particles = [];
+    let video;
+    let segmenter = null;
+    let maskData = null;
+    let mapW, mapH;
+    let frameCount = 0;
+    let segBusy = false;
+    let isImage = false; // true if user uploaded an image instead of video
+    let imageSource = null; // HTMLImageElement for image mode
+    let started = false;
+
+    // Body attraction targets (sampled from mask)
+    let bodyTargets = [];
+
+    // Spatial grid
+    const GRID_SIZE = 16;
+    let grid = {};
+
+    function resize() {
+      W = window.innerWidth; H = window.innerHeight;
+      canvas.width = W; canvas.height = H;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // ─── VIDEO ───
+    video = document.createElement('video');
+    video.muted = true; video.playsInline = true; video.preload = 'auto';
+
+    function loadVideo(src) {
+      isImage = false; imageSource = null;
+      video.src = src; previewVideo.src = src;
+      previewVideo.style.display = 'block'; previewImg.style.display = 'none';
+      video.load(); previewVideo.load();
+      video.onloadeddata = () => {
+        videoW = video.videoWidth; videoH = video.videoHeight;
+        mapW = Math.floor(videoW * 0.25); mapH = Math.floor(videoH * 0.25);
+        maskData = null;
+        const pw = 180;
+        previewEl.style.width = pw + 'px';
+        previewEl.style.height = Math.floor(pw * (videoH / videoW)) + 'px';
+        previewEl.style.display = 'block';
+        uploadArea.style.display = 'none';
+        if (segmenter) { statusEl.textContent = 'Click to start'; statusEl.style.display = 'block'; }
+      };
+    }
+
+    function loadImage(src) {
+      isImage = true;
+      const img = new Image();
+      img.onload = () => {
+        imageSource = img;
+        videoW = img.naturalWidth; videoH = img.naturalHeight;
+        mapW = Math.floor(videoW * 0.25); mapH = Math.floor(videoH * 0.25);
+        maskData = null;
+        const pw = 180;
+        previewEl.style.width = pw + 'px';
+        previewEl.style.height = Math.floor(pw * (videoH / videoW)) + 'px';
+        previewImg.src = src;
+        previewImg.style.display = 'block'; previewVideo.style.display = 'none';
+        previewEl.style.display = 'block';
+        uploadArea.style.display = 'none';
+        if (segmenter) { statusEl.textContent = 'Click to start'; statusEl.style.display = 'block'; }
+      };
+      img.src = src;
+    }
+
+    video.addEventListener('ended', () => {
+      if (CONFIG.loop) {
+        video.currentTime = 0; video.play();
+        previewVideo.currentTime = 0; previewVideo.play();
+      }
+    });
+
+    function handleFileUpload(file) {
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+      if (file.type.startsWith('image/')) loadImage(url);
+      else loadVideo(url);
+    }
+
+    document.getElementById('videoFile').addEventListener('change', (e) => handleFileUpload(e.target.files[0]));
+    document.querySelector('#changeFile input').addEventListener('change', (e) => {
+      started = false; particles = [];
+      handleFileUpload(e.target.files[0]);
+    });
+
+    // ─── AI MODEL ───
+    async function init() {
+      try {
+        await tf.setBackend('webgl'); await tf.ready();
+        segmenter = await bodySegmentation.createSegmenter(
+          bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation, {
+            runtime: 'mediapipe',
+            solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1.1675465747',
+            modelType: 'general',
+          });
+        if (isImage && imageSource) statusEl.textContent = 'Click to start';
+        else if (!isImage && video.readyState >= 2) statusEl.textContent = 'Click to start';
+        else { statusEl.textContent = ''; statusEl.style.display = 'none'; }
+      } catch (err) { statusEl.textContent = 'Error: ' + err.message; }
+    }
+
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('#controls,#preview,#uploadArea')) return;
+      if (!segmenter || started) return;
+      if (isImage && imageSource) {
+        started = true;
+        statusEl.style.display = 'none'; controls.style.display = 'block';
+        if (particles.length === 0) initParticles();
+        // Run segmentation once for image
+        runSegmentation();
+      } else if (!isImage && video.readyState >= 2 && video.paused) {
+        started = true;
+        video.play(); previewVideo.play();
+        statusEl.style.display = 'none'; controls.style.display = 'block';
+        if (particles.length === 0) initParticles();
+      }
+    });
+
+    // ─── SEGMENTATION ───
+    async function runSegmentation() {
+      if (!segmenter || segBusy) return;
+      const source = isImage ? imageSource : video;
+      if (!isImage && (video.paused || video.readyState < 2)) return;
+      if (isImage && !imageSource) return;
+      segBusy = true;
+      try {
+        const seg = await segmenter.segmentPeople(source, {
+          flipHorizontal: false, multiSegmentation: false, segmentBodyParts: false,
+        });
+        if (seg.length > 0) {
+          const maskSource = await seg[0].mask.toCanvasImageSource();
+          const tmp = document.createElement('canvas');
+          tmp.width = mapW; tmp.height = mapH;
+          const tc = tmp.getContext('2d', { willReadFrequently: true });
+          tc.drawImage(maskSource, 0, 0, mapW, mapH);
+          const d = tc.getImageData(0, 0, mapW, mapH).data;
+          if (!maskData || maskData.length !== mapW * mapH) maskData = new Uint8Array(mapW * mapH);
+          for (let i = 0; i < maskData.length; i++) maskData[i] = d[i * 4];
+
+          // Build body target list for magnet mode
+          buildBodyTargets();
+          frameCount++;
+        }
+      } catch (e) { console.warn(e); }
+      segBusy = false;
+    }
+    setInterval(runSegmentation, 66);
+
+    function buildBodyTargets() {
+      bodyTargets = [];
+      if (!maskData) return;
+      const { drawW, drawH, offsetX, offsetY } = getDrawRect();
+      const step = 2;
+      for (let y = 0; y < mapH; y += step) {
+        for (let x = 0; x < mapW; x += step) {
+          if (maskData[y * mapW + x] > 128) {
+            bodyTargets.push({
+              x: offsetX + (x / mapW) * drawW,
+              y: offsetY + (y / mapH) * drawH,
+            });
+          }
+        }
+      }
+    }
+
+    // ─── CONTROLS ───
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        CONFIG.mode = btn.dataset.mode;
+        initParticles();
+      });
+    });
+    document.getElementById('count').addEventListener('input', (e) => {
+      CONFIG.particleCount = +e.target.value;
+      document.getElementById('countVal').textContent = e.target.value; initParticles();
+    });
+    document.getElementById('maxSize').addEventListener('input', (e) => {
+      CONFIG.maxParticleSize = +e.target.value;
+      document.getElementById('maxSizeVal').textContent = e.target.value;
+    });
+    document.getElementById('minSize').addEventListener('input', (e) => {
+      CONFIG.minParticleSize = +e.target.value;
+      document.getElementById('minSizeVal').textContent = e.target.value;
+    });
+    document.getElementById('minOpacity').addEventListener('input', (e) => {
+      CONFIG.minOpacity = +e.target.value / 100;
+      document.getElementById('minOpacityVal').textContent = e.target.value;
+    });
+    document.getElementById('speed').addEventListener('input', (e) => {
+      CONFIG.baseSpeed = +e.target.value;
+      document.getElementById('speedVal').textContent = e.target.value;
+    });
+    document.getElementById('slow').addEventListener('input', (e) => {
+      CONFIG.slowFactor = +e.target.value / 100;
+      document.getElementById('slowVal').textContent = e.target.value;
+    });
+    document.getElementById('loop').addEventListener('change', (e) => { CONFIG.loop = e.target.checked; });
+
+    // ─── COORDINATE MAPPING ───
+    function getDrawRect() {
+      if (!videoW) return { drawW: W, drawH: H, offsetX: 0, offsetY: 0 };
+      const va = videoW / videoH, sa = W / H;
+      let dw, dh, ox, oy;
+      if (sa > va) { dh = H; dw = H * va; ox = (W - dw) / 2; oy = 0; }
+      else { dw = W; dh = W / va; ox = 0; oy = (H - dh) / 2; }
+      return { drawW: dw, drawH: dh, offsetX: ox, offsetY: oy };
+    }
+
+    function getDensityAt(sx, sy) {
+      if (!maskData) return 0;
+      const { drawW, drawH, offsetX, offsetY } = getDrawRect();
+      const vx = ((sx - offsetX) / drawW) * mapW;
+      const vy = ((sy - offsetY) / drawH) * mapH;
+      if (vx < 0 || vx >= mapW || vy < 0 || vy >= mapH) return 0;
+      return maskData[Math.floor(vy) * mapW + Math.floor(vx)] / 255;
+    }
+
+    // ─── PARTICLES ───
+    function initParticles() {
+      particles = [];
+      for (let i = 0; i < CONFIG.particleCount; i++) {
+        particles.push(createParticle(CONFIG.mode, true));
+      }
+    }
+
+    function createParticle(mode, randomPos) {
+      const bs = CONFIG.baseSpeed * (0.5 + Math.random());
+      const p = {
+        x: Math.random() * W, y: Math.random() * H,
+        vx: 0, vy: 0,
+        size: CONFIG.minParticleSize,
+        targetSize: CONFIG.minParticleSize,
+        opacity: CONFIG.minOpacity,
+        targetOpacity: CONFIG.minOpacity,
+        baseSpeed: bs,
+        drift: (Math.random() - 0.5) * 0.3,
+      };
+
+      switch (mode) {
+        case 'flow':
+          p.x = randomPos ? Math.random() * W : -Math.random() * 100;
+          p.vx = bs;
+          break;
+        case 'magnet':
+          // Spread everywhere, will be attracted to body
+          p.vx = (Math.random() - 0.5) * 2;
+          p.vy = (Math.random() - 0.5) * 2;
+          break;
+        case 'rain':
+          p.y = randomPos ? Math.random() * H : -Math.random() * 100;
+          p.vx = (Math.random() - 0.5) * 0.5;
+          p.vy = bs * 0.8;
+          break;
+      }
+      return p;
+    }
+
+    // ═══════════════════════════════════════
+    // MODE: FLOW (left to right)
+    // ═══════════════════════════════════════
+    function updateFlow() {
+      const lerp = 0.2, minOp = CONFIG.minOpacity, minSz = CONFIG.minParticleSize;
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        const d = getDensityAt(p.x, p.y);
+        if (d > 0.3) {
+          const t = (d - 0.3) / 0.7;
+          p.targetSize = minSz + t * (CONFIG.maxParticleSize - minSz);
+          p.targetOpacity = minOp + t * (1.0 - minOp);
+          p.vx += (p.baseSpeed * CONFIG.slowFactor - p.vx) * 0.2;
+        } else {
+          p.targetSize = minSz; p.targetOpacity = minOp;
+          p.vx += (p.baseSpeed - p.vx) * 0.1;
+        }
+        p.size += (p.targetSize - p.size) * lerp;
+        p.opacity += (p.targetOpacity - p.opacity) * lerp;
+        p.x += p.vx;
+        p.y += p.drift + Math.sin(p.x * 0.005 + p.y * 0.003) * 0.15;
+        if (p.x > W + 20) {
+          p.x = -Math.random() * 80; p.y = Math.random() * H;
+          p.size = minSz; p.opacity = minOp; p.vx = p.baseSpeed;
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════
+    // MODE: MAGNET — Position-based dynamics
+    // No velocity. Each frame: move toward body, then resolve overlaps.
+    // ═══════════════════════════════════════
+    const MAGNET_SPACING = 7;
+    const MAG_GRID = 8;
+
+    // Each particle remembers its assigned body target (stable, not random)
+    let particleTargets = null; // index into bodyTargets
+
+    function assignBodyTargets() {
+      if (!bodyTargets.length || !particles.length) return;
+      particleTargets = new Int32Array(particles.length);
+      // Assign each particle to a random body target (persisted between frames)
+      for (let i = 0; i < particles.length; i++) {
+        particleTargets[i] = (Math.random() * bodyTargets.length) | 0;
+      }
+    }
+
+    // Re-assign targets when mask updates
+    let lastMagnetFrame = -1;
+
+    function updateMagnet() {
+      const lerp = 0.15, minOp = CONFIG.minOpacity, minSz = CONFIG.minParticleSize;
+      const sp2 = MAGNET_SPACING * MAGNET_SPACING;
+      const n = particles.length;
+
+      // Re-assign targets when body shape changes
+      if (frameCount !== lastMagnetFrame && bodyTargets.length > 0) {
+        lastMagnetFrame = frameCount;
+        if (!particleTargets || particleTargets.length !== n) {
+          assignBodyTargets();
+        } else {
+          // Smoothly reassign: each particle picks the closest NEW target
+          for (let i = 0; i < n; i++) {
+            const p = particles[i];
+            let bestD = Infinity, bestJ = 0;
+            // Sample 8 random targets, pick closest to current position
+            for (let s = 0; s < 8; s++) {
+              const j = (Math.random() * bodyTargets.length) | 0;
+              const t = bodyTargets[j];
+              const d2 = (t.x - p.x) ** 2 + (t.y - p.y) ** 2;
+              if (d2 < bestD) { bestD = d2; bestJ = j; }
+            }
+            particleTargets[i] = bestJ;
+          }
+        }
+      }
+
+      // ── Step 1: Only attract OFF-BODY particles. On-body ones stay put. ──
+      if (bodyTargets.length > 0 && particleTargets) {
+        for (let i = 0; i < n; i++) {
+          const p = particles[i];
+          const d = getDensityAt(p.x, p.y);
+          if (d > 0.3) continue; // already on body — don't pull, let collision handle spacing
+          const ti = particleTargets[i];
+          if (ti >= bodyTargets.length) continue;
+          const t = bodyTargets[ti];
+          p.x += (t.x - p.x) * 0.03;
+          p.y += (t.y - p.y) * 0.03;
+        }
+      }
+
+      // ── Step 2: Hard overlap resolution — 5 iterations, 100% correction ──
+      for (let iter = 0; iter < 5; iter++) {
+        const g = new Map();
+        for (let i = 0; i < n; i++) {
+          const p = particles[i];
+          const key = ((p.x / MAG_GRID) | 0) * 131072 + ((p.y / MAG_GRID) | 0);
+          let cell = g.get(key);
+          if (!cell) { cell = []; g.set(key, cell); }
+          cell.push(i);
+        }
+
+        for (let i = 0; i < n; i++) {
+          const p = particles[i];
+          const gx = (p.x / MAG_GRID) | 0;
+          const gy = (p.y / MAG_GRID) | 0;
+
+          for (let ddx = -1; ddx <= 1; ddx++) {
+            for (let ddy = -1; ddy <= 1; ddy++) {
+              const cell = g.get((gx + ddx) * 131072 + (gy + ddy));
+              if (!cell) continue;
+              for (let k = 0; k < cell.length; k++) {
+                const j = cell[k];
+                if (j <= i) continue;
+                const o = particles[j];
+                const ex = p.x - o.x;
+                const ey = p.y - o.y;
+                const d2 = ex * ex + ey * ey;
+                if (d2 < sp2 && d2 > 0.001) {
+                  const d = Math.sqrt(d2);
+                  const overlap = MAGNET_SPACING - d;
+                  // Full correction: push apart by exactly half overlap each
+                  const nx = ex / d;
+                  const ny = ey / d;
+                  const push = overlap * 0.52; // slightly over 50% to converge faster
+                  p.x += nx * push;
+                  p.y += ny * push;
+                  o.x -= nx * push;
+                  o.y -= ny * push;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // ── Step 3: Size & opacity ──
+      for (let i = 0; i < n; i++) {
+        const p = particles[i];
+        const d = getDensityAt(p.x, p.y);
+        if (d > 0.3) {
+          const t = (d - 0.3) / 0.7;
+          p.targetSize = minSz + t * (CONFIG.maxParticleSize - minSz);
+          p.targetOpacity = minOp + t * (1.0 - minOp);
+        } else {
+          p.targetSize = minSz;
+          p.targetOpacity = minOp;
+        }
+        p.size += (p.targetSize - p.size) * lerp;
+        p.opacity += (p.targetOpacity - p.opacity) * lerp;
+      }
+    }
+
+    // ═══════════════════════════════════════
+    // MODE: RAIN
+    // ═══════════════════════════════════════
+    function updateRain() {
+      const lerp = 0.2, minOp = CONFIG.minOpacity, minSz = CONFIG.minParticleSize;
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        const d = getDensityAt(p.x, p.y);
+        if (d > 0.3) {
+          const t = (d - 0.3) / 0.7;
+          p.targetSize = minSz + t * (CONFIG.maxParticleSize - minSz);
+          p.targetOpacity = minOp + t * (1.0 - minOp);
+          p.vy *= 0.85;
+          p.vx += (Math.random() - 0.5) * 0.5; p.vx *= 0.9;
+        } else {
+          p.targetSize = minSz; p.targetOpacity = minOp;
+          p.vy += 0.05;
+          if (p.vy > p.baseSpeed) p.vy = p.baseSpeed;
+        }
+        p.size += (p.targetSize - p.size) * lerp;
+        p.opacity += (p.targetOpacity - p.opacity) * lerp;
+        p.x += p.vx + p.drift; p.y += p.vy;
+        if (p.y > H + 20) {
+          p.x = Math.random() * W; p.y = -Math.random() * 100;
+          p.vx = (Math.random() - 0.5) * 0.5; p.vy = p.baseSpeed * 0.3;
+          p.size = minSz; p.opacity = minOp;
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════
+    // MODE: EXPLODE (continuous bursts from body, stick on body)
+    // ═══════════════════════════════════════
+
+    // ─── MAIN LOOP ───
+    function update() {
+      switch (CONFIG.mode) {
+        case 'flow': updateFlow(); break;
+        case 'magnet': updateMagnet(); break;
+        case 'rain': updateRain(); break;
+      }
+    }
+
+    function draw() {
+      ctx.fillStyle = `rgb(${CONFIG.bgColor.join(',')})`;
+      ctx.fillRect(0, 0, W, H);
+      const [pr, pg, pb] = CONFIG.particleColor;
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        ctx.globalAlpha = p.opacity;
+        ctx.fillStyle = `rgb(${pr},${pg},${pb})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      debugEl.textContent = `${CONFIG.mode} | seg: ${frameCount} | ${video.currentTime.toFixed(1)}s`;
+    }
+
+    function mainLoop() { update(); draw(); requestAnimationFrame(mainLoop); }
+    mainLoop();
+    init();
+  </script>
+</body>
+</html>

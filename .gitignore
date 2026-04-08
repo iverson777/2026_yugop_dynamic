@@ -1,0 +1,21 @@
+# Videos and source media
+*.MOV
+*.mov
+*.mp4
+*.jpg
+*.png
+!screenshots/*.png
+!screenshots/*.jpg
+
+# Background reference
+bg.png
+
+# ffmpeg artifacts
+silhouette.mp4
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# temp
+*.output

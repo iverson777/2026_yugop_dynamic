@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "particle-flow",
+      "runtimeExecutable": "/opt/homebrew/bin/python3.10",
+      "runtimeArgs": ["-m", "http.server", "8080", "-d", "/Users/huchinhsiang/Downloads/2026_yugop_dynamic"],
+      "port": 8080
+    }
+  ]
+}
