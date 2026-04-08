@@ -4,7 +4,7 @@ An interactive particle visualization inspired by Shinichi Fukuoka's *Dynamic Eq
 
 ## Live Demo
 
-**[Try it here](https://huchinhsiang.github.io/2026_yugop_dynamic/)**
+**[Try it here](https://iverson777.github.io/2026_yugop_dynamic/)**
 
 Upload a video or image of a person and watch the particles reveal the figure.
 

@@ -82,6 +82,9 @@
         <input type="file" id="videoFile" accept="video/*,image/*" style="display:none;">
       </label>
       <div style="margin-top:12px; font-size:11px; color:#aaa;">Supports MP4, MOV, WebM, JPG, PNG</div>
+      <div style="margin-top:16px; border-top:1px solid #eee; padding-top:12px;">
+        <button id="sampleBtn" style="background:none; border:1px solid #aaa; border-radius:4px; padding:6px 16px; cursor:pointer; font-size:12px; color:#666; font-family:'Helvetica Neue',sans-serif;">or Try Sample Video</button>
+      </div>
     </div>
   </div>
 
@@ -232,6 +235,13 @@
     document.querySelector('#changeFile input').addEventListener('change', (e) => {
       started = false; particles = [];
       handleFileUpload(e.target.files[0]);
+    });
+
+    // Sample video from Mixkit (CC0, free to use)
+    const SAMPLE_URL = 'https://assets.mixkit.co/videos/4855/4855-720.mp4';
+    document.getElementById('sampleBtn').addEventListener('click', () => {
+      document.getElementById('sampleBtn').textContent = 'Loading...';
+      loadVideo(SAMPLE_URL);
     });
 
     // ─── AI MODEL ───
