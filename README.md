@@ -8,6 +8,12 @@ An interactive particle visualization inspired by Shinichi Fukuoka's *Dynamic Eq
 
 Upload a video or image of a person and watch the particles reveal the figure.
 
+## Screenshots
+
+| Flow Mode | Magnet Mode |
+|:---------:|:-----------:|
+| ![Flow](screenshots/flow.jpg) | ![Magnet](screenshots/magnet.jpg) |
+
 ## Features
 
 - **AI Body Segmentation** — Real-time person detection using TensorFlow.js + MediaPipe
