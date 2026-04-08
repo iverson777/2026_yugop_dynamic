@@ -181,6 +181,10 @@
 
     function loadVideo(src) {
       isImage = false; imageSource = null;
+      // Enable CORS for cross-origin videos (needed for AI segmentation)
+      const isCrossOrigin = src.startsWith('http');
+      video.crossOrigin = isCrossOrigin ? 'anonymous' : null;
+      previewVideo.crossOrigin = isCrossOrigin ? 'anonymous' : null;
       video.src = src; previewVideo.src = src;
       previewVideo.style.display = 'block'; previewImg.style.display = 'none';
       video.load(); previewVideo.load();
